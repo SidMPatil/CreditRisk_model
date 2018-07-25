@@ -1,0 +1,102 @@
+---
+title: "Credit-Risk"
+author: "Siddharth Patil"
+date: "May 12, 2018"
+output:
+  word_document: default
+  html_document: default
+---
+
+#Import the data
+```{r}
+data = read.csv("credit risk data.csv", header = TRUE)
+
+data %>% group_by(not.fully.paid) %>% summarise(no_rows = length(not.fully.paid))
+```
+
+#Data Preprocessing (dummy variables; normalization)
+```{r}
+#Creating dummy variables for 'purpose' variable
+library(dummies)
+data = cbind(data, dummy(data$purpose, sep = "_"))
+data = data[,-c(2)]
+
+#Normalization
+normalize <- function(x) {
+ return ((x - min(x)) / (max(x) - min(x))) }
+ 
+data_norm = as.data.frame(lapply(data, normalize))
+
+data_norm$not.fully.paid = as.factor(data_norm$not.fully.paid)
+```
+
+#Variable selection
+```{r}
+Log_reg = glm(not.fully.paid ~ ., data_norm, family = "binomial")
+#summary(NB) # to identify the significant attributes (Pr(>|z|) < 0.05)
+
+library(broom)
+tm = tidy(Log_reg) #data frame with model summary parameters as columns
+
+# get variables with p value less than 0.05
+library(dplyr)
+sign_variables = tm$term[tm$p.value < 0.05] %>% paste(collapse = " + ")
+sign_variables = paste0('not.fully.paid', ' ~ ', sign_variables)
+#sign_variables
+```
+
+#Training and test dataset
+```{r}
+# ## 75% of the sample size
+smp_size = floor(0.75 * nrow(data_norm))
+
+## set the seed to make your partition reproducible
+set.seed(12345)
+train_ind = sample(seq_len(nrow(data_norm)), size = smp_size)
+
+train_data = data_norm[train_ind, ]
+test_data = data_norm[-train_ind, ]
+```
+
+#Building a logistic regression model
+```{r}
+log_regr = glm(not.fully.paid ~ int.rate + installment + log.annual.inc + revol.util + inq.last.6mths + pub.rec + annualincome + data_credit_card + data_debt_consolidation, train_data, family = "binomial")
+
+summary(log_regr)
+```
+
+#Predicting the results for the test data set
+```{r}
+test_predictions = predict(log_regr, newdata = test_data, type = "response")
+
+test_data$predictied.risk = test_predictions
+```
+
+#Confusion matrix
+```{r}
+#Confusion matrix
+library(caret)
+confusionMatrix(table(test_data$not.fully.paid, as.numeric(test_predictions >= 0.6)))
+
+```
+
+#ROC
+```{r}
+library(ROCR)
+require(ROCR)
+pred = prediction(test_data$predictied.risk, test_data$not.fully.paid)
+#pred
+as.numeric(performance(pred, "auc")@y.values)
+
+predictTrain = predict(log_regr, type="response")
+#predictTrain
+ROCRpred = prediction(predictTrain, train_data$not.fully.paid)
+#ROCRpred
+ROCRperf = performance(ROCRpred, "tpr", "fpr")
+#ROCRperf
+plot(ROCRperf) 
+plot(ROCRperf, colorize=TRUE)
+
+plot(ROCRperf, colorize=TRUE, print.cutoffs.at=seq(0,1,by=0.1), text.adj=c(-0.2,1.7))
+```
+
